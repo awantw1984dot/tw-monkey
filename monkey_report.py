@@ -368,6 +368,7 @@ def render(days, daily, summary, groups):
             f'{esc(m["code"])} {esc(m["name"])}{" <small>權值</small>" if m.get("big") else ""}</td>'
             f'<td class="num {cls(m["t1"])}">{m["t1"]:+,.0f}</td>'
             f'<td class="num {cls(m["t5"])}">{m["t5"]:+,.0f}</td>'
+            f'<td class="num {cls(m["tv5"])}">{m["tv5"]/1e8:+,.2f}</td>'
             f'<td class="num {cls(m["f5"])}">{m["f5"]:+,.0f}</td>'
             f'<td class="num {cls(m["r5"])}">{m["r5"]*100:+.1f}%</td></tr>'
             for m in s["members"])
@@ -376,7 +377,8 @@ def render(days, daily, summary, groups):
             f'<details id="m-{esc(s["group"])}"{open_}><summary>{esc(s["group"])}'
             f'<span class="{cls(s["t5"])}">投信5日 {fmt(s["t5"], 2)} 億</span></summary>'
             f'<table class="mem"><thead><tr><th>個股</th><th>投信今日<br><small>張</small></th>'
-            f'<th>投信5日<br><small>張</small></th><th>外資5日<br><small>張</small></th>'
+            f'<th>投信5日<br><small>張</small></th><th>投信5日<br><small>億</small></th>'
+            f'<th>外資5日<br><small>張</small></th>'
             f'<th>5日漲跌</th></tr></thead><tbody>{rows}</tbody></table></details>')
 
     # ---------- 重點族群：三類分開列 ----------
@@ -491,7 +493,7 @@ summary span{{font-weight:400;font-size:13px}}
 <div class="legend"><span>投信賣超</span><div class="bar"></div><span>投信買超</span><span>｜色深＝買賣超 ÷ 族群日均成交額，點格子看數字</span></div>
 
 <h2>成分股明細</h2>
-<p class="note">● 有效買超（計入擴散度）｜<small>·</small> 近60日投信沒碰過（不計入分母）</p>
+<p class="note">依投信 5 日淨買超金額排序｜● 有效買超（計入擴散度）｜<small>·</small> 近60日投信沒碰過（不計入分母）</p>
 {details}
 <div id="tip"></div>
 </main>
