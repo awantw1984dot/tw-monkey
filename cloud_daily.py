@@ -30,7 +30,7 @@ WORK = os.path.join(HERE, "work")
 OUT = os.path.join(HERE, "out")
 KEEP = 110                      # 保留最近幾個交易日（報表需要 60 日活躍＋60 日熱度圖）
 FIELDS = ["date", "code", "name", "close", "change", "value", "trust_net",
-          "foreign_net", "tact", "issued"]
+          "foreign_net", "tact", "issued", "sbl"]
 
 
 def rcsv(p):
@@ -74,7 +74,21 @@ def day_rows_from_backfill(data_dir, d):
                 o["trust_net"] = r["trust_net"] or "0"
                 o["foreign_net"] = r["foreign_net"] or "0"
                 o["tact"] = "1" if fnum(r["trust_buy"]) + fnum(r["trust_sell"]) > 0 else "0"
+    for v, sb in read_sbl(data_dir, d).items():
+        if v in out:
+            out[v]["sbl"] = sb
     return list(out.values())
+
+
+def read_sbl(data_dir, d):
+    """借券賣出餘額（股）：{代號: 餘額}"""
+    m = {}
+    for src in ("twse", "tpex"):
+        p = os.path.join(data_dir, f"{src}_sbl", d + ".csv")
+        if os.path.exists(p):
+            for r in rcsv(p):
+                m[r["code"]] = r["sbl_bal"]
+    return m
 
 
 def write_store(rows_by_day):
@@ -123,6 +137,15 @@ def unpack(days, rows_by_day):
             for r in rows:
                 w.writerow([r["code"], r["name"], r["foreign_net"],
                             "1" if r["tact"] == "1" else "0", "0", r["trust_net"], "", ""])
+    sdir = os.path.join(WORK, "data", "twse_sbl")
+    os.makedirs(sdir)
+    for d in days:
+        with open(os.path.join(sdir, d + ".csv"), "w", newline="", encoding="utf-8") as f:
+            w = csv.writer(f)
+            w.writerow(["code", "sbl_bal"])
+            for r in rows_by_day[d]:
+                if r.get("sbl") not in (None, ""):
+                    w.writerow([r["code"], r["sbl"]])
     shutil.copy(os.path.join(STORE, "industry.csv"), os.path.join(WORK, "data", "industry.csv"))
     if os.path.isdir(os.path.join(STORE, "etf")):         # 主動式 ETF 持股快照
         shutil.copytree(os.path.join(STORE, "etf"), os.path.join(WORK, "data", "etf"))
@@ -152,7 +175,10 @@ def run():
     if os.path.exists(ind):      # 已有產業分類就不重抓（雲端連櫃買產業頁不穩）
         shutil.copy(ind, os.path.join(FETCH, "data", "industry.csv"))
     days_arg = sys.argv[2] if len(sys.argv) > 2 else "10"
-    r = subprocess.run([sys.executable, "tw_backfill.py", "--days", days_arg], cwd=FETCH)
+    cmd = [sys.executable, "tw_backfill.py", "--days", days_arg]
+    if len(sys.argv) > 3 and sys.argv[3].strip():
+        cmd += ["--only", sys.argv[3].strip()]       # 例如只補借券：twse_sbl,tpex_sbl
+    r = subprocess.run(cmd, cwd=FETCH)
     warn = ""
     if r.returncode != 0:      # 部分日期被擋：已抓到的照用，缺的下次自動補
         warn = "部分日期下載失敗，下次執行會自動補抓"
@@ -165,6 +191,14 @@ def run():
         rows = day_rows_from_backfill(fdata, d)
         if rows:
             old[d] = rows
+    # 只補借券時：把借券餘額併進既有的日資料
+    for p in glob.glob(os.path.join(fdata, "*_sbl", "*.csv")):
+        d = os.path.basename(p)[:-4]
+        if d in old:
+            sb = read_sbl(fdata, d)
+            for r in old[d]:
+                if r["code"] in sb:
+                    r["sbl"] = sb[r["code"]]
     if os.path.exists(os.path.join(fdata, "industry.csv")):
         new_ind = rcsv(os.path.join(fdata, "industry.csv"))
         if sum(1 for x in new_ind if x["market"] == "上櫃") > 100:   # 上櫃有抓到才更新

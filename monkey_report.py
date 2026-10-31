@@ -83,7 +83,7 @@ def load(end_date=None):
                 close, chg = fnum(r["close"]), fnum(r["change"])
                 q[(d, c)] = {"close": close, "chg": chg,
                              "value": fnum(r["value_twd"]) or 0.0,
-                             "trust": 0.0, "foreign": 0.0, "tact": False}
+                             "trust": 0.0, "foreign": 0.0, "tact": False, "sbl": None}
                 iss = fnum(r.get("issued_shares"))
                 if iss and c in info and not info[c]["issued"]:
                     info[c]["issued"] = iss
@@ -95,6 +95,12 @@ def load(end_date=None):
                         q[k]["foreign"] = fnum(r["foreign_net"]) or 0.0
                         q[k]["tact"] = ((fnum(r.get("trust_buy")) or 0)
                                         + (fnum(r.get("trust_sell")) or 0)) > 0
+            sp = os.path.join(DATA, f"{src}_sbl", d + ".csv")
+            if os.path.exists(sp):                       # 借券賣出餘額（股）
+                for r in rcsv(sp):
+                    k = (d, r["code"])
+                    if k in q and r.get("sbl_bal") not in (None, ""):
+                        q[k]["sbl"] = fnum(r["sbl_bal"])
     # 換算金額、報酬
     for v in q.values():
         px = v["close"] or 0.0
@@ -242,6 +248,16 @@ def compute(days, info, q, groups):
                 tags.append(("季底窗口", "warn"))
             if f5 < 0:
                 tags.append(("投信買外資賣", "info"))
+        # 外資疑似回補：外資 5 日買超張數中，有一半以上對得上借券餘額的減少
+        f5_sh = sum(q[(d, c)]["foreign"] for c in codes for d in d5 if (d, c) in q)
+        base_d = days[-6] if len(days) >= 6 else None
+        sbl_now = sum(q[(last, c)]["sbl"] or 0 for c in codes if (last, c) in q)
+        sbl_then = sum(q[(base_d, c)]["sbl"] or 0 for c in codes if base_d and (base_d, c) in q)
+        has_sbl = bool(base_d) and any(q.get((last, c), {}).get("sbl") is not None for c in codes) \
+            and any(q.get((base_d, c), {}).get("sbl") is not None for c in codes)
+        cover = (sbl_then - sbl_now) / f5_sh if (has_sbl and f5_sh > 0) else None
+        if f5 > 0 and cover is not None and cover >= 0.5:
+            tags.append(("外資疑似回補", "warn"))
         if streak <= -3:
             tags.append((f"連賣{-streak}天", "bad"))
 
@@ -251,7 +267,8 @@ def compute(days, info, q, groups):
             "f1": f1 / 1e8, "f5": f5 / 1e8,
             "intensity": (t5 / turn5 * 100) if turn5 else 0,
             "streak": streak, "diff5": diff5,
-            "n_active": n_active, "n_buyers": n_buyers,
+            "n_active": n_active, "n_buyers": n_buyers, "cover": cover,
+            "sbl_chg5": (sbl_now - sbl_then) / 1000 if has_sbl else None,
             "diff1": daily[(g, last)]["n_buy"] / daily[(g, last)]["n"],
             "rel5": rel5 * 100, "rel20": rel20 * 100,
             "big2": big2_share, "tags": tags,
@@ -322,6 +339,7 @@ def loyalty(days, info, q, groups):
         FB = sum(q[(d, c)]["foreign_v"] for d in post)
         buyd = sum(1 for d in post if q[(d, c)]["trust"] > 0) / max(len(post), 1)
         keep = (A + B) / A
+        s_now, s_pk = x.get("sbl"), q[(pk, c)].get("sbl")
         if keep >= 1 and buyd >= .5:
             cat = "不離不棄"
         elif keep >= .9:
@@ -333,7 +351,9 @@ def loyalty(days, info, q, groups):
         out.append({"code": c, "name": info[c]["name"], "industry": info[c]["industry"],
                     "concept": concept.get(c, ""), "peak": pk, "dd": dd, "A": A / 1e8,
                     "B": B / 1e8, "FB": FB / 1e8, "keep": keep, "buyd": buyd,
-                    "ndays": len(post), "cat": cat})
+                    "ndays": len(post), "cat": cat,
+                    "sbl_now": s_now / 1000 if s_now is not None else None,
+                    "sbl_chg": (s_now - s_pk) / 1000 if (s_now is not None and s_pk is not None) else None})
     return sorted(out, key=lambda r: -r["A"])
 
 
@@ -508,7 +528,16 @@ def render(days, daily, summary, groups, loy=None):
                 f'<td class="num {cls(r["B"])}">{r["B"]:+,.1f}</td>'
                 f'<td class="num {cls(r["FB"])}">{r["FB"]:+,.1f}</td>'
                 f'<td class="num">{r["keep"]*100:.0f}%</td>'
-                f'<td class="num">{r["buyd"]*100:.0f}%</td>{etf_cell(r)}</tr>')
+                f'<td class="num">{r["buyd"]*100:.0f}%</td>{sbl_cell(r)}{etf_cell(r)}</tr>')
+
+    def sbl_cell(r):
+        if r.get("sbl_now") is None:
+            return '<td class="num"><small>—</small></td>'
+        ch = r.get("sbl_chg")
+        chs = "" if ch is None else (
+            f'<br><small class="{"up" if ch > 0 else ("dn" if ch < 0 else "")}">'
+            f'{"放空增加" if ch > 0 else ("回補" if ch < 0 else "持平")} {ch:+,.0f}</small>')
+        return f'<td class="num">{r["sbl_now"]:,.0f}{chs}</td>'
 
     def etf_cell(r):
         if "etf_n" not in r:
@@ -537,8 +566,9 @@ def render(days, daily, summary, groups, loy=None):
             rs = rs[:limit] + [r for r in con if r not in rs[:limit]]
         head = ('<tr><th>個股</th><th>高點</th><th>回檔</th><th>上漲段<br><small>投信</small></th>'
                 '<th>高點後<br><small>投信</small></th><th>高點後<br><small>外資</small></th>'
-                '<th>留存率</th><th>買超<br><small>天數</small></th><th>主動 ETF<br><small>自高點變化</small></th></tr>')
-        body = "".join(lrow(r) for r in rs) or '<tr><td colspan="9" class="empty">今天沒有</td></tr>'
+                '<th>留存率</th><th>買超<br><small>天數</small></th><th>借券餘額<br><small>張｜自高點</small></th>'
+                '<th>主動 ETF<br><small>自高點變化</small></th></tr>')
+        body = "".join(lrow(r) for r in rs) or '<tr><td colspan="10" class="empty">今天沒有</td></tr>'
         n = sum(1 for r in loy if r["cat"] == cat)
         return (f'<section class="pick {kind}"><h3>{title}<span>{n}</span></h3><p>{desc}</p>'
                 f'<div class="scroll"><table class="mem"><thead>{head}</thead><tbody>{body}</tbody></table></div></section>')
@@ -617,6 +647,8 @@ summary span{{font-weight:400;font-size:13px}}
 .pick.p4{{border-left-color:var(--bad)}}
 .pick .scroll{{border:0;background:transparent}}
 .ct2{{color:var(--info)}}
+.explain{{margin:10px 0}} .explain summary{{font-size:14px}} .explain p{{margin:6px 12px 10px;font-size:13px;line-height:1.7;color:var(--fg2)}}
+.explain b{{color:var(--fg)}}
 .etfc{{min-width:150px}} .etfc summary{{cursor:pointer;white-space:nowrap}}
 .etfc ul{{margin:6px 0 0;padding-left:16px;font-size:12px;color:var(--fg2);white-space:nowrap}}
 </style></head><body><main>
@@ -631,13 +663,20 @@ summary span{{font-weight:400;font-size:13px}}
 <p class="note">從近 60 日高點回檔 ≥ {loy_dd}%、且漲到高點前 20 天投信買超 ≥ {loy_a} 億元的個股｜金額為億元｜留存率＝（上漲段買超＋高點後買賣）÷ 上漲段買超</p>
 {loyal}
 <p class="note">回測（一年、回檔 20%，之後 20 日相對大盤）：不離不棄 平均 +3.1%、中位數 −1.8%｜撤退 平均 −0.2%、中位數 −3.5%｜按兵不動 平均 −1.5%、中位數 −5.3%。大跌後通常還會再跌，不離不棄跌得比較少；這是篩選條件，不是進場訊號。<br>主動 ETF：目前持有的主動式 ETF 檔數，以及跟高點當時相比的檔數與合計張數變化；點一下看是哪幾檔。資料每天累積，涵蓋到高點之前才會顯示變化。</p>
+<details class="explain"><summary>看懂「借券餘額」</summary>
+<p><b>借券餘額是什麼？</b>有人向持股人借股票來賣掉，等股價跌了再買回來還，這叫放空。借券餘額就是「目前還沒還回去的股票有多少張」，主要是外資在用。</p>
+<p><b>數字變大</b>（紅字「放空增加」）：有人在新增放空，看壞這檔股票的人變多。</p>
+<p><b>數字變小</b>（藍字「回補」）：放空的人把股票買回來還。這時候法人資料上會顯示「外資買超」，但那其實是<b>還券</b>，不是看好；還完之後買盤就沒了。</p>
+<p><b>怎麼搭配不離不棄看？</b>投信不離不棄、同時借券餘額也在增加，代表投信和放空的人在對作，股價波動會比較大；借券餘額持續減少，代表空方在撤退，對股價比較有利。</p>
+<p>注意：借券餘額沒有分是誰借的，大部分是外資但不完全是，所以只能說「疑似」。</p>
+</details>
 
 <h2>族群排行</h2>
 <div class="filt"><button class="on" data-f="all">全部</button><button data-f="概念">概念族群</button><button data-f="產業">官方產業</button></div>
 <div class="scroll">{table}</div>
 <p class="note">點欄位標題可排序。強度＝投信5日買超金額 ÷ 族群5日成交金額。<br>
 擴散度＝有效買超檔數 ÷ 投信活躍檔數（活躍＝近60日投信有買賣；有效買超＝5日淨買超≥500萬元）。<br>
-標籤只在投信5日淨買超 ≥ 5 億元時出現：<b>主動佈局</b> 擴散度20–50%且≥3檔｜<b>過熱</b> 擴散度≥50%｜<b>買超集中</b> 擴散度&lt;20%或不到3檔｜季底窗口：季底月20日後且單一個股佔六成以上買超。<br>
+標籤只在投信5日淨買超 ≥ 5 億元時出現：<b>主動佈局</b> 擴散度20–50%且≥3檔｜<b>過熱</b> 擴散度≥50%｜<b>買超集中</b> 擴散度&lt;20%或不到3檔｜季底窗口：季底月20日後且單一個股佔六成以上買超｜<b>外資疑似回補</b>：族群外資 5 日買超，但同期借券餘額減少的張數達到外資買超張數的一半以上，代表外資買的很可能大多是在還券，不是看好。<br>
 回測（一年、投信買外資賣時，之後20日相對其他產業）：擴散20–35% +1.3%／勝率58%；&lt;20% −0.6%／37%；≥50% −2.9%／24%（樣本少）。近半年效果明顯變弱，標籤是過濾條件，不是進場訊號。</p>
 
 <h2>投信熱度圖（近 {heat_days} 個交易日）</h2>

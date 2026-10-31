@@ -49,7 +49,7 @@ RETRY_WAIT = [30, 90]       # 失敗後重試等待秒數
 MAX_CONSEC_FAIL = 3         # 連續幾個請求失敗就判定被封鎖、停止
 STOCK_RE = re.compile(r"^[1-9]\d{3}$")   # 4 位數普通股，排除 0050 等 ETF
 
-SOURCES = ["twse_quote", "twse_insti", "tpex_insti", "tpex_quote"]
+SOURCES = ["twse_quote", "twse_insti", "tpex_insti", "tpex_quote", "twse_sbl", "tpex_sbl"]
 
 # 證交所產業別代碼 → 名稱（上市、上櫃共用）
 INDUSTRY_NAMES = {
@@ -229,11 +229,52 @@ def tpex_quote(d):
     return "ok", QUOTE_HEADER, rows
 
 
+def _sbl_rows(tbl):
+    """信用額度總量管制餘額表：第 8–13 欄是借券賣出（前日餘額、當日賣出、當日還券、調整、當日餘額）"""
+    rows = []
+    for r in tbl.get("data") or []:
+        code = str(r[0]).strip()
+        if not STOCK_RE.match(code) or len(r) < 13:
+            continue
+        rows.append([code, str(r[1]).strip(), num(r[8]), num(r[9]), num(r[10]), num(r[12])])
+    return rows
+
+
+def twse_sbl(d):
+    j = get_json("https://www.twse.com.tw/rwd/zh/marginTrading/TWT93U"
+                 f"?date={d:%Y%m%d}&response=json")
+    if j.get("stat") != "OK":
+        return "nodata", None, None
+    tbl = next((t for t in (j.get("tables") or [j]) if isinstance(t, dict) and t.get("data")), None)
+    if not tbl:
+        return "nodata", None, None
+    if len(tbl.get("fields") or []) < 13:
+        raise Blocked("證交所借券欄位改版")
+    rows = _sbl_rows(tbl)
+    return ("ok", SBL_HEADER, rows) if rows else ("nodata", None, None)
+
+
+def tpex_sbl(d):
+    j = get_json("https://www.tpex.org.tw/www/zh-tw/margin/sbl"
+                 f"?date={d:%Y/%m/%d}&response=json")
+    tbl = (j.get("tables") or [{}])[0]
+    if not tbl.get("data"):
+        return "nodata", None, None
+    if j.get("date") and j["date"] != f"{d:%Y%m%d}":
+        return "nodata", None, None
+    if len(tbl.get("fields") or []) < 13:
+        raise Blocked("櫃買借券欄位改版")
+    rows = _sbl_rows(tbl)
+    return ("ok", SBL_HEADER, rows) if rows else ("nodata", None, None)
+
+
 QUOTE_HEADER = ["code", "name", "open", "high", "low", "close", "change",
                 "volume_shares", "value_twd", "issued_shares"]
 INSTI_HEADER = ["code", "name", "foreign_net", "trust_buy", "trust_sell",
                 "trust_net", "dealer_net", "total_net"]
-FETCHERS = {"twse_quote": twse_quote, "twse_insti": twse_insti,
+SBL_HEADER = ["code", "name", "sbl_prev", "sbl_sell", "sbl_return", "sbl_bal"]
+FETCHERS = {"twse_sbl": twse_sbl, "tpex_sbl": tpex_sbl,
+            "twse_quote": twse_quote, "twse_insti": twse_insti,
             "tpex_insti": tpex_insti, "tpex_quote": tpex_quote}
 
 
@@ -331,7 +372,10 @@ def candidate_dates(days):
     return out
 
 
-def run(days, test=False, retry=False):
+def run(days, test=False, retry=False, only=None):
+    global SOURCES
+    if only:
+        SOURCES = [x for x in SOURCES if x in only]
     os.makedirs(DATA, exist_ok=True)
     st = load_status()
     dates = candidate_dates(days)
@@ -350,7 +394,7 @@ def run(days, test=False, retry=False):
     for n, d in enumerate(dates, 1):
         ds = f"{d:%Y%m%d}"
         # 已知休市
-        if st.get((ds, "twse_quote")) == "nodata" and not retry:
+        if st.get((ds, SOURCES[0])) == "nodata" and not retry:
             continue
         need = [s for s in SOURCES
                 if not (st.get((ds, s)) in ("ok", "nodata")
@@ -393,7 +437,7 @@ def run(days, test=False, retry=False):
             else:
                 save_status(ds, s, "nodata", 0)
                 print(f"{s}:無資料 ", end="", flush=True)
-                if s == "twse_quote":     # 證交所沒資料 = 休市，其他來源跳過
+                if s == SOURCES[0]:       # 第一個來源沒資料 = 休市，其他來源跳過
                     print("（休市）", end="")
                     break
         print(flush=True)
@@ -412,7 +456,7 @@ def run(days, test=False, retry=False):
 
 def summary():
     st = load_status()
-    trading = sorted({d for (d, s), v in st.items() if s == "twse_quote" and v == "ok"})
+    trading = sorted({d for (d, s), v in st.items() if s == SOURCES[0] and v == "ok"})
     print("\n" + "=" * 60)
     print("回補摘要")
     print("=" * 60)
@@ -474,9 +518,10 @@ if __name__ == "__main__":
     ap.add_argument("--days", type=int, default=366, help="回補天數（日曆天）")
     ap.add_argument("--test", action="store_true", help="只抓最近 3 個交易日")
     ap.add_argument("--retry", action="store_true", help="重抓失敗日期")
+    ap.add_argument("--only", help="只抓指定來源，逗號分隔，例如 twse_sbl,tpex_sbl")
     a = ap.parse_args()
     try:
-        run(a.days, test=a.test, retry=a.retry)
+        run(a.days, test=a.test, retry=a.retry, only=a.only.split(",") if a.only else None)
         if a.test:
             sanity_check()
             print("\n測試完成。請把整段輸出貼給 Claude 確認，沒問題再跑完整回補。")

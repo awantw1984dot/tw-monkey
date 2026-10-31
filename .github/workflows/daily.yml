@@ -5,6 +5,9 @@ on:
       days:
         description: "往回補抓幾天（日曆天）。平常 10；第一次建檔用 170"
         default: "10"
+      only:
+        description: "只抓指定來源（留空＝全部）。補借券用 twse_sbl,tpex_sbl"
+        default: ""
   schedule:
     # 備援：台北 18:47（UTC 10:47）。主要由 cron-job.org 準時觸發
     - cron: "47 10 * * 1-5"
@@ -32,7 +35,7 @@ jobs:
         env:
           TZ: Asia/Taipei
         run: |
-          python3 -u cloud_daily.py run "${{ github.event.inputs.days || '10' }}" | tee run.log
+          python3 -u cloud_daily.py run "${{ github.event.inputs.days || '10' }}" "${{ github.event.inputs.only || '' }}" | tee run.log
           grep '^RESULT ' run.log | sed 's/^RESULT //' > result.json
       - name: 發布到 docs/
         run: |
