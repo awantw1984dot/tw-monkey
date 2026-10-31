@@ -23,6 +23,10 @@ jobs:
         with:
           python-version: "3.12"
       - run: pip install requests
+      - name: 主動式 ETF 持股
+        continue-on-error: true
+        timeout-minutes: 15
+        run: python3 -u etf_holdings.py
       - name: 抓資料、更新報表
         id: run
         env:

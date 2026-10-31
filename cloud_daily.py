@@ -124,6 +124,8 @@ def unpack(days, rows_by_day):
                 w.writerow([r["code"], r["name"], r["foreign_net"],
                             "1" if r["tact"] == "1" else "0", "0", r["trust_net"], "", ""])
     shutil.copy(os.path.join(STORE, "industry.csv"), os.path.join(WORK, "data", "industry.csv"))
+    if os.path.isdir(os.path.join(STORE, "etf")):         # 主動式 ETF 持股快照
+        shutil.copytree(os.path.join(STORE, "etf"), os.path.join(WORK, "data", "etf"))
     for f in ("monkey_report.py", "concept_groups.csv"):
         shutil.copy(os.path.join(HERE, f), WORK)
 

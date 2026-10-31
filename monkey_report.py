@@ -17,6 +17,7 @@
 """
 import argparse
 import csv
+import glob
 import html
 import json
 import os
@@ -336,6 +337,41 @@ def loyalty(days, info, q, groups):
     return sorted(out, key=lambda r: -r["A"])
 
 
+def load_etf():
+    """主動式 ETF 持股快照：{日期: {股票代號: [(ETF代號, ETF名稱, 張數, 權重)]}}"""
+    snaps = {}
+    for p in sorted(glob.glob(os.path.join(DATA, "etf", "*.csv"))):
+        d = os.path.basename(p)[:-4]
+        m = defaultdict(list)
+        for r in rcsv(p):
+            m[r["code"]].append((r["etf"], r["etf_name"], fnum(r["shares"]) / 1000, fnum(r["weight"])))
+        snaps[d] = m
+    return snaps
+
+
+def attach_etf(loy, snaps):
+    if not snaps:
+        return
+    dates = sorted(snaps)
+    last = dates[-1]
+    for r in loy:
+        now = snaps[last].get(r["code"], [])
+        r["etf_now"] = sorted(now, key=lambda x: -x[2])
+        r["etf_n"] = len(now)
+        r["etf_sh"] = sum(x[2] for x in now)
+        base = [d for d in dates if d <= r["peak"]]
+        if base:
+            then = snaps[base[-1]].get(r["code"], [])
+            r["etf_dn"] = len(now) - len(then)
+            r["etf_dsh"] = r["etf_sh"] - sum(x[2] for x in then)
+            prev = {x[0]: x[2] for x in then}
+            r["etf_chg"] = {x[0]: x[2] - prev.get(x[0], 0) for x in now}
+            nowk = {x[0] for x in now}
+            r["etf_out"] = [(x[0], x[1], x[2]) for x in then if x[0] not in nowk]
+        else:
+            r["etf_since"] = dates[0]
+
+
 def render(days, daily, summary, groups, loy=None):
     last = days[-1]
     ld = f"{last[:4]}/{last[4:6]}/{last[6:]}"
@@ -472,7 +508,27 @@ def render(days, daily, summary, groups, loy=None):
                 f'<td class="num {cls(r["B"])}">{r["B"]:+,.1f}</td>'
                 f'<td class="num {cls(r["FB"])}">{r["FB"]:+,.1f}</td>'
                 f'<td class="num">{r["keep"]*100:.0f}%</td>'
-                f'<td class="num">{r["buyd"]*100:.0f}%</td></tr>')
+                f'<td class="num">{r["buyd"]*100:.0f}%</td>{etf_cell(r)}</tr>')
+
+    def etf_cell(r):
+        if "etf_n" not in r:
+            return '<td class="num"><small>—</small></td>'
+        if not r["etf_n"]:
+            return '<td class="num"><small>0 檔</small></td>'
+        if "etf_dn" in r:
+            dn, dsh = r["etf_dn"], r["etf_dsh"]
+            chg = (f'<span class="{cls(dn)}">{"↑" if dn > 0 else ("↓" if dn < 0 else "→")}{abs(dn)}</span> '
+                   f'<span class="{cls(dsh)}">{dsh:+,.0f}張</span>')
+        else:
+            chg = f'<small>累積中（{r["etf_since"][4:6]}/{r["etf_since"][6:]}起）</small>'
+        items = "".join(
+            f'<li>{esc(e)} {esc(n.replace("主動", ""))}　{sh:,.0f}張　{w:.2f}%'
+            + (f'　<span class="{cls(r["etf_chg"][e])}">{r["etf_chg"][e]:+,.0f}</span>' if "etf_chg" in r and r["etf_chg"].get(e) else "")
+            + '</li>' for e, n, sh, w in r["etf_now"]) + "".join(
+            f'<li>{esc(e)} {esc(n.replace("主動", ""))}　<span class="dn">已出清 −{sh:,.0f}張</span></li>'
+            for e, n, sh in r.get("etf_out", []))
+        return (f'<td class="etfc"><details><summary><b>{r["etf_n"]} 檔</b> {chg}</summary>'
+                f'<ul>{items}</ul></details></td>')
 
     def ltable(cat, kind, title, desc, limit=None):
         rs = [r for r in loy if r["cat"] == cat]
@@ -481,8 +537,8 @@ def render(days, daily, summary, groups, loy=None):
             rs = rs[:limit] + [r for r in con if r not in rs[:limit]]
         head = ('<tr><th>個股</th><th>高點</th><th>回檔</th><th>上漲段<br><small>投信</small></th>'
                 '<th>高點後<br><small>投信</small></th><th>高點後<br><small>外資</small></th>'
-                '<th>留存率</th><th>買超<br><small>天數</small></th></tr>')
-        body = "".join(lrow(r) for r in rs) or '<tr><td colspan="8" class="empty">今天沒有</td></tr>'
+                '<th>留存率</th><th>買超<br><small>天數</small></th><th>主動 ETF<br><small>自高點變化</small></th></tr>')
+        body = "".join(lrow(r) for r in rs) or '<tr><td colspan="9" class="empty">今天沒有</td></tr>'
         n = sum(1 for r in loy if r["cat"] == cat)
         return (f'<section class="pick {kind}"><h3>{title}<span>{n}</span></h3><p>{desc}</p>'
                 f'<div class="scroll"><table class="mem"><thead>{head}</thead><tbody>{body}</tbody></table></div></section>')
@@ -561,6 +617,8 @@ summary span{{font-weight:400;font-size:13px}}
 .pick.p4{{border-left-color:var(--bad)}}
 .pick .scroll{{border:0;background:transparent}}
 .ct2{{color:var(--info)}}
+.etfc{{min-width:150px}} .etfc summary{{cursor:pointer;white-space:nowrap}}
+.etfc ul{{margin:6px 0 0;padding-left:16px;font-size:12px;color:var(--fg2);white-space:nowrap}}
 </style></head><body><main>
 <h1>投信的猴子</h1>
 <div class="sub">資料日 {date}｜資料範圍 {first} 起共 {ndays} 個交易日｜金額單位：億元</div>
@@ -572,7 +630,7 @@ summary span{{font-weight:400;font-size:13px}}
 <h2>投信不離不棄</h2>
 <p class="note">從近 60 日高點回檔 ≥ {loy_dd}%、且漲到高點前 20 天投信買超 ≥ {loy_a} 億元的個股｜金額為億元｜留存率＝（上漲段買超＋高點後買賣）÷ 上漲段買超</p>
 {loyal}
-<p class="note">回測（一年、回檔 20%，之後 20 日相對大盤）：不離不棄 平均 +3.1%、中位數 −1.8%｜撤退 平均 −0.2%、中位數 −3.5%｜按兵不動 平均 −1.5%、中位數 −5.3%。大跌後通常還會再跌，不離不棄跌得比較少；這是篩選條件，不是進場訊號。</p>
+<p class="note">回測（一年、回檔 20%，之後 20 日相對大盤）：不離不棄 平均 +3.1%、中位數 −1.8%｜撤退 平均 −0.2%、中位數 −3.5%｜按兵不動 平均 −1.5%、中位數 −5.3%。大跌後通常還會再跌，不離不棄跌得比較少；這是篩選條件，不是進場訊號。<br>主動 ETF：目前持有的主動式 ETF 檔數，以及跟高點當時相比的檔數與合計張數變化；點一下看是哪幾檔。資料每天累積，涵蓋到高點之前才會顯示變化。</p>
 
 <h2>族群排行</h2>
 <div class="filt"><button class="on" data-f="all">全部</button><button data-f="概念">概念族群</button><button data-f="產業">官方產業</button></div>
@@ -619,6 +677,7 @@ def main():
     print(f"  {len(days)} 個交易日、{len(groups)} 個族群，計算中…", flush=True)
     daily, summary = compute(days, info, q, groups)
     loy = loyalty(days, info, q, groups)
+    attach_etf(loy, load_etf())
     gd = write_group_daily(daily, groups)
     os.makedirs(OUT_DIR, exist_ok=True)
     out = os.path.join(OUT_DIR, f"投信的猴子_{days[-1]}.html")
