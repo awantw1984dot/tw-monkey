@@ -48,3 +48,4 @@ for i, (c, (nm, mk)) in enumerate(sorted(codes.items())):
         results[c] = {"name": nm, "error": str(e)}; L(c, "ERR", e)
 json.dump({"codes": codes, "results": results}, open("probe/out/result.json", "w", encoding="utf-8"), ensure_ascii=False, indent=1)
 open("probe/out/log.txt", "w", encoding="utf-8").write("\n".join(log))
+# rerun
