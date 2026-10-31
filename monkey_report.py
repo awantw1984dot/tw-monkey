@@ -36,6 +36,11 @@ MIN_BUYERS = 3                    # 至少幾檔有效買超
 DIFF_LOW, DIFF_HIGH = 0.20, 0.50  # 主動佈局區間；≥ 上限標「過熱」
 MIN_GROUP_VALUE = 5e8             # 族群投信 5 日淨買超 ≥ 5 億元才貼買方標籤
 
+# 投信不離不棄（2026/10/31 以一年資料回測，門檻 20%）
+LOY_LOOK, LOY_PRE = 60, 20        # 高點回看天數、上漲段天數
+LOY_DD = 0.20                     # 從高點回檔至少 20%
+LOY_MIN_A = 3e8                   # 上漲段投信買超至少 3 億元
+
 
 # ------------------------------------------------------------
 # 讀資料
@@ -283,7 +288,55 @@ def cls(x):
     return "up" if x > 0 else ("dn" if x < 0 else "")
 
 
-def render(days, daily, summary, groups):
+def loyalty(days, info, q, groups):
+    """投信不離不棄：從近 60 日高點回檔 ≥ 20% 的股票，看投信是撤退還是留下"""
+    concept = {}
+    for g, gv in groups.items():
+        if gv["kind"] == "概念":
+            for c in gv["codes"]:
+                concept[c] = g
+    if len(days) < LOY_LOOK + 1:
+        return []
+    last = days[-1]
+    win = days[-LOY_LOOK - 1:]
+    out = []
+    for c in info:
+        x = q.get((last, c))
+        if not x or not x["close"]:
+            continue
+        ds = [d for d in win if (d, c) in q and q[(d, c)]["close"]]
+        pk = max(ds, key=lambda d: q[(d, c)]["close"])
+        if pk == last:
+            continue
+        dd = x["close"] / q[(pk, c)]["close"] - 1
+        if dd > -LOY_DD:
+            continue
+        ip = days.index(pk)
+        pre = [d for d in days[max(0, ip - LOY_PRE + 1):ip + 1] if (d, c) in q]
+        post = [d for d in days[ip + 1:] if (d, c) in q]
+        A = sum(q[(d, c)]["trust_v"] for d in pre)
+        if A < LOY_MIN_A:
+            continue
+        B = sum(q[(d, c)]["trust_v"] for d in post)
+        FB = sum(q[(d, c)]["foreign_v"] for d in post)
+        buyd = sum(1 for d in post if q[(d, c)]["trust"] > 0) / max(len(post), 1)
+        keep = (A + B) / A
+        if keep >= 1 and buyd >= .5:
+            cat = "不離不棄"
+        elif keep >= .9:
+            cat = "按兵不動"
+        elif keep < .7:
+            cat = "撤退"
+        else:
+            cat = "其他"
+        out.append({"code": c, "name": info[c]["name"], "industry": info[c]["industry"],
+                    "concept": concept.get(c, ""), "peak": pk, "dd": dd, "A": A / 1e8,
+                    "B": B / 1e8, "FB": FB / 1e8, "keep": keep, "buyd": buyd,
+                    "ndays": len(post), "cat": cat})
+    return sorted(out, key=lambda r: -r["A"])
+
+
+def render(days, daily, summary, groups, loy=None):
     last = days[-1]
     ld = f"{last[:4]}/{last[4:6]}/{last[6:]}"
     concept = [s for s in summary if s["kind"] == "概念"]
@@ -406,7 +459,40 @@ def render(days, daily, summary, groups):
              + block("只有主動佈局", "投信廣泛買超，但外資沒有在賣", act_only, "p2")
              + block("只有投信買外資賣", "投信有接，但買超集中、過熱或檔數不足", pa_only, "p3"))
 
+
+    # ---------- 投信不離不棄 ----------
+    loy = loy or []
+
+    def lrow(r):
+        tag = f'<small class="ct2">{esc(r["concept"])}</small>' if r["concept"] else f'<small>{esc(r["industry"])}</small>'
+        return (f'<tr><td>{esc(r["code"])} {esc(r["name"])} {tag}</td>'
+                f'<td class="num">{r["peak"][4:6]}/{r["peak"][6:]}</td>'
+                f'<td class="num dn">{r["dd"]*100:.0f}%</td>'
+                f'<td class="num">{r["A"]:,.1f}</td>'
+                f'<td class="num {cls(r["B"])}">{r["B"]:+,.1f}</td>'
+                f'<td class="num {cls(r["FB"])}">{r["FB"]:+,.1f}</td>'
+                f'<td class="num">{r["keep"]*100:.0f}%</td>'
+                f'<td class="num">{r["buyd"]*100:.0f}%</td></tr>')
+
+    def ltable(cat, kind, title, desc, limit=None):
+        rs = [r for r in loy if r["cat"] == cat]
+        if limit:
+            con = [r for r in rs if r["concept"]]
+            rs = rs[:limit] + [r for r in con if r not in rs[:limit]]
+        head = ('<tr><th>個股</th><th>高點</th><th>回檔</th><th>上漲段<br><small>投信</small></th>'
+                '<th>高點後<br><small>投信</small></th><th>高點後<br><small>外資</small></th>'
+                '<th>留存率</th><th>買超<br><small>天數</small></th></tr>')
+        body = "".join(lrow(r) for r in rs) or '<tr><td colspan="8" class="empty">今天沒有</td></tr>'
+        n = sum(1 for r in loy if r["cat"] == cat)
+        return (f'<section class="pick {kind}"><h3>{title}<span>{n}</span></h3><p>{desc}</p>'
+                f'<div class="scroll"><table class="mem"><thead>{head}</thead><tbody>{body}</tbody></table></div></section>')
+
+    loyal = (ltable("不離不棄", "p1", "不離不棄", "投信沒跑，下跌時還持續加碼（留存率 ≥ 100%、買超天數 ≥ 50%）")
+             + ltable("按兵不動", "p3", "按兵不動（警訊）", "投信沒賣但也很少加碼，回測表現最差，可能是被套住")
+             + ltable("撤退", "p4", "撤退", "投信在下跌中賣掉三成以上（只列上漲段買最多的 10 檔＋概念族群）", limit=10))
+
     return TEMPLATE.format(
+        loyal=loyal, loy_dd=f"{LOY_DD*100:.0f}", loy_a=f"{LOY_MIN_A/1e8:.0f}",
         date=ld, ndays=len(days), first=f"{days[0][:4]}/{days[0][4:6]}/{days[0][6:]}",
         picks=picks, min_val=f"{MIN_GROUP_VALUE/1e8:.0f}",
         table=table, heat=heat, heat_days=len(hd), details="".join(det))
@@ -472,6 +558,9 @@ summary span{{font-weight:400;font-size:13px}}
 .cr{{display:flex;gap:12px;flex-wrap:wrap;font-size:12px;color:var(--fg2);margin-top:4px}}
 .cr em{{font-style:normal;font-variant-numeric:tabular-nums;font-weight:600}}
 .empty{{font-size:13px;color:var(--fg2)}}
+.pick.p4{{border-left-color:var(--bad)}}
+.pick .scroll{{border:0;background:transparent}}
+.ct2{{color:var(--info)}}
 </style></head><body><main>
 <h1>投信的猴子</h1>
 <div class="sub">資料日 {date}｜資料範圍 {first} 起共 {ndays} 個交易日｜金額單位：億元</div>
@@ -479,6 +568,11 @@ summary span{{font-weight:400;font-size:13px}}
 <h2>重點族群</h2>
 <p class="note">只列投信 5 日淨買超 ≥ {min_val} 億元的族群｜數字為 5 日累計（億元），點卡片看成分股</p>
 {picks}
+
+<h2>投信不離不棄</h2>
+<p class="note">從近 60 日高點回檔 ≥ {loy_dd}%、且漲到高點前 20 天投信買超 ≥ {loy_a} 億元的個股｜金額為億元｜留存率＝（上漲段買超＋高點後買賣）÷ 上漲段買超</p>
+{loyal}
+<p class="note">回測（一年、回檔 20%，之後 20 日相對大盤）：不離不棄 平均 +3.1%、中位數 −1.8%｜撤退 平均 −0.2%、中位數 −3.5%｜按兵不動 平均 −1.5%、中位數 −5.3%。大跌後通常還會再跌，不離不棄跌得比較少；這是篩選條件，不是進場訊號。</p>
 
 <h2>族群排行</h2>
 <div class="filt"><button class="on" data-f="all">全部</button><button data-f="概念">概念族群</button><button data-f="產業">官方產業</button></div>
@@ -524,11 +618,12 @@ def main():
     groups = build_groups(info)
     print(f"  {len(days)} 個交易日、{len(groups)} 個族群，計算中…", flush=True)
     daily, summary = compute(days, info, q, groups)
+    loy = loyalty(days, info, q, groups)
     gd = write_group_daily(daily, groups)
     os.makedirs(OUT_DIR, exist_ok=True)
     out = os.path.join(OUT_DIR, f"投信的猴子_{days[-1]}.html")
     with open(out, "w", encoding="utf-8") as f:
-        f.write(render(days, daily, summary, groups))
+        f.write(render(days, daily, summary, groups, loy))
 
     # 終端機摘要
     print(f"\n報表：{out}\n族群每日指標：{gd}\n")
@@ -546,6 +641,9 @@ def main():
             ("只有主動佈局", [s for s in by_t5 if has(s, "主動佈局") and not has(s, "投信買外資賣")]),
             ("只有投信買外資賣", [s for s in by_t5 if has(s, "投信買外資賣") and not has(s, "主動佈局")])):
         print(f"\n【{title}】{len(sel)} 個：" + ("、".join(s["group"] for s in sel) or "無"))
+    for cat in ("不離不棄", "按兵不動"):
+        sel = [r for r in loy if r["cat"] == cat]
+        print(f"\n【投信{cat}】{len(sel)} 檔：" + ("、".join(r["name"] for r in sel) or "無"))
     print("\n用瀏覽器打開報表，或 AirDrop 到手機看。")
 
 
