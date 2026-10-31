@@ -1,0 +1,58 @@
+name: 投信的猴子 每日更新
+on:
+  workflow_dispatch:
+    inputs:
+      days:
+        description: "往回補抓幾天（日曆天）。平常 10；第一次建檔用 170"
+        default: "10"
+  schedule:
+    # 備援：台北 18:47（UTC 10:47）。主要由 cron-job.org 準時觸發
+    - cron: "47 10 * * 1-5"
+permissions:
+  contents: write
+concurrency:
+  group: monkey-daily
+  cancel-in-progress: false
+jobs:
+  daily:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install requests
+      - name: 抓資料、更新報表
+        id: run
+        env:
+          TZ: Asia/Taipei
+        run: |
+          python3 -u cloud_daily.py run "${{ github.event.inputs.days || '10' }}" | tee run.log
+          grep '^RESULT ' run.log | sed 's/^RESULT //' > result.json
+      - name: 發布到 docs/
+        run: |
+          DAY=$(python3 -c "import json;print(json.load(open('result.json'))['last_day'])")
+          mkdir -p docs/archive
+          cp out/index.html docs/index.html
+          sed -i 's#<h1>投信的猴子</h1>#<h1>投信的猴子</h1><div class="sub"><a href="archive.html">歷史報表</a></div>#' docs/index.html
+          cp out/index.html "docs/archive/${DAY}.html"
+          python3 - <<'EOF'
+          import os, json
+          files = sorted(f for f in os.listdir("docs/archive") if f.endswith(".html"))[::-1][:60]
+          links = "".join(f'<li><a href="archive/{f}">{f[:4]}/{f[4:6]}/{f[6:8]}</a></li>' for f in files)
+          open("docs/archive.html", "w", encoding="utf-8").write(
+              '<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">'
+              '<title>投信的猴子 歷史報表</title><body style="font:16px/1.8 -apple-system,sans-serif;padding:16px">'
+              f'<h1 style="font-size:20px">歷史報表</h1><p><a href="./">← 最新</a></p><ul>{links}</ul>')
+          print(json.load(open("result.json")))
+          EOF
+      - name: 存檔
+        run: |
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add store docs
+          git diff --cached --quiet && { echo "沒有變動"; exit 0; }
+          DAY=$(python3 -c "import json;print(json.load(open('result.json'))['last_day'])")
+          git commit -m "資料：${DAY}"
+          git push
