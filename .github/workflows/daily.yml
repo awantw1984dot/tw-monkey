@@ -29,7 +29,7 @@ jobs:
       - name: 主動式 ETF 持股
         continue-on-error: true
         timeout-minutes: 15
-        run: python3 -u etf_holdings.py
+        run: python3 -u etf_holdings.py | tee etf.log
       - name: 抓資料、更新報表
         id: run
         env:
@@ -58,6 +58,7 @@ jobs:
         run: |
           git config user.name github-actions[bot]
           git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          tail -c 20000 run.log > docs/last_run.txt || true
           git add store docs
           git diff --cached --quiet && { echo "沒有變動"; exit 0; }
           DAY=$(python3 -c "import json;print(json.load(open('result.json'))['last_day'])")
