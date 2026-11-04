@@ -42,6 +42,7 @@ jobs:
           DAY=$(python3 -c "import json;print(json.load(open('result.json'))['last_day'])")
           mkdir -p docs/archive
           cp out/index.html docs/index.html
+          cp out/signals.json docs/signals.json 2>/dev/null || true
           sed -i 's#<h1>投信的猴子</h1>#<h1>投信的猴子</h1><div class="sub"><a href="archive.html">歷史報表</a></div>#' docs/index.html
           cp out/index.html "docs/archive/${DAY}.html"
           python3 - <<'EOF'

@@ -225,6 +225,9 @@ def run():
     with open(os.path.join(OUT, "page.html"), "w", encoding="utf-8") as f:
         f.write(page)
     shutil.copy(rep, os.path.join(OUT, "index.html"))          # 完整網頁（GitHub Pages 用）
+    sig = os.path.join(WORK, "report", "signals.json")
+    if os.path.exists(sig):
+        shutil.copy(sig, os.path.join(OUT, "signals.json"))     # 給買進前評估表
 
     # 摘要（給排程任務的通知用）
     summ = re.findall(r"【(.+?)】(\d+) 個：(.*)", r.stdout)

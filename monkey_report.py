@@ -704,6 +704,33 @@ summary span{{font-weight:400;font-size:13px}}
 </script></body></html>"""
 
 
+def write_signals(days, info, q, loy):
+    """給「買進前評估表」用的結構化訊號：每檔投信／外資近 5 日（億元）、投信連買天數，與不離不棄分類"""
+    last, d5 = days[-1], days[-5:]
+    stocks = {}
+    for c in info:
+        x = q.get((last, c))
+        if not x or not x.get("close"):
+            continue
+        t5 = sum(q[(d, c)].get("trust_v", 0) for d in d5 if (d, c) in q)
+        f5 = sum(q[(d, c)].get("foreign_v", 0) for d in d5 if (d, c) in q)
+        st = 0
+        for d in reversed(days):
+            if (d, c) in q and q[(d, c)].get("trust", 0) > 0:
+                st += 1
+            else:
+                break
+        if not (t5 or f5 or st):
+            continue
+        stocks[c] = [info[c]["name"], round(t5 / 1e8, 2), round(f5 / 1e8, 2), st, x["close"]]
+    lo = {r["code"]: {"cat": r["cat"], "dd": round(r["dd"] * 100), "keep": round(r["keep"] * 100),
+                      "buyd": round(r["buyd"] * 100), "fb": round(r["FB"], 1), "peak": r["peak"],
+                      "sbl_chg": None if r["sbl_chg"] is None else round(r["sbl_chg"])} for r in loy}
+    with open(os.path.join(OUT_DIR, "signals.json"), "w", encoding="utf-8") as f:
+        json.dump({"date": last, "cols": ["name", "trust5_e8", "foreign5_e8", "trust_streak", "close"],
+                   "stocks": stocks, "loyalty": lo}, f, ensure_ascii=False, separators=(",", ":"))
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--date", help="以某一天為報表日，例如 20260331")
@@ -722,6 +749,7 @@ def main():
     out = os.path.join(OUT_DIR, f"投信的猴子_{days[-1]}.html")
     with open(out, "w", encoding="utf-8") as f:
         f.write(render(days, daily, summary, groups, loy))
+    write_signals(days, info, q, loy)
 
     # 終端機摘要
     print(f"\n報表：{out}\n族群每日指標：{gd}\n")
