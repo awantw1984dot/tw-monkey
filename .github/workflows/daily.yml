@@ -64,4 +64,8 @@ jobs:
           git diff --cached --quiet && { echo "沒有變動"; exit 0; }
           DAY=$(python3 -c "import json;print(json.load(open('result.json'))['last_day'])")
           git commit -m "資料：${DAY}"
-          git push
+          for i in 1 2 3; do
+            git pull --rebase -X theirs origin main && git push && exit 0
+            echo "推送失敗，第 $i 次重試…"; sleep 10
+          done
+          exit 1
