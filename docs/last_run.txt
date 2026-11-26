@@ -1,13 +1,12 @@
 範圍：2026-11-17 ～ 2026-11-26，共 8 個平日
 
-[  1/8] 2026-11-26 twse_quote:1092 twse_insti:1085 tpex_insti:773 tpex_quote:896 twse_sbl:無資料 tpex_sbl:無資料 
+[  1/8] 2026-11-26 twse_quote:1092 twse_insti:1085 tpex_insti:773 tpex_quote:896 twse_sbl:1065 tpex_sbl:818 
 [  2/8] 2026-11-25 twse_quote:1092 twse_insti:1085 tpex_insti:781 tpex_quote:895 twse_sbl:1065 tpex_sbl:818 
 [  3/8] 2026-11-24 twse_quote:1092 twse_insti:1076 tpex_insti:804 tpex_quote:895 twse_sbl:1065 tpex_sbl:818 
 [  4/8] 2026-11-23 twse_quote:1092 twse_insti:1085 tpex_insti:800 tpex_quote:895 twse_sbl:1065 tpex_sbl:818 
 [  5/8] 2026-11-20 twse_quote:1091 twse_insti:1079 tpex_insti:808 tpex_quote:895 twse_sbl:1065 tpex_sbl:818 
 [  6/8] 2026-11-19 twse_quote:1091 twse_insti:1082 tpex_insti:806 tpex_quote:895 twse_sbl:1065 tpex_sbl:818 
-[  7/8] 2026-11-18 twse_quote:1091 twse_insti:1082     ⚠ ReadTimeout，30 秒後重試…
-tpex_insti:782 tpex_quote:896 twse_sbl:1065 tpex_sbl:819 
+[  7/8] 2026-11-18 twse_quote:1091 twse_insti:1082 tpex_insti:782 tpex_quote:896 twse_sbl:1065 tpex_sbl:819 
 [  8/8] 2026-11-17 twse_quote:1091 twse_insti:1083 tpex_insti:782 tpex_quote:897 twse_sbl:1065 tpex_sbl:819 
 
 ============================================================
@@ -18,8 +17,8 @@ tpex_insti:782 tpex_quote:896 twse_sbl:1065 tpex_sbl:819
   ✓ twse_insti  8/8
   ✓ tpex_insti  8/8
   ✓ tpex_quote  8/8
-  ⚠ twse_sbl    7/8  缺：20261126
-  ⚠ tpex_sbl    7/8  缺：20261126
+  ✓ twse_sbl    8/8
+  ✓ tpex_sbl    8/8
   產業分類：上市 1093、上櫃 897 檔
 讀取資料…
   110 個交易日、36 個族群，計算中…
@@ -31,12 +30,12 @@ tpex_insti:782 tpex_quote:896 twse_sbl:1065 tpex_sbl:819
 光通訊             -27.51   -4.6%   -12   20%(2/10)     42.85  連賣12天
 HVDC            149.02    8.5%     2   33%(3/9)   -201.54  主動佈局 投信買外資賣
 散熱               62.20    5.7%     2   36%(4/11)    -36.30  主動佈局 投信買外資賣
-半導體             206.94    1.1%     3   23%(30/130)  -1858.80  主動佈局 投信買外資賣
-電子零組件           182.85    2.2%     2   24%(25/105)   -272.35  主動佈局 投信買外資賣
+半導體             203.76    1.1%     3   22%(29/130)  -1858.80  主動佈局 投信買外資賣
+電子零組件           167.45    2.0%     2   24%(25/105)   -272.35  主動佈局 投信買外資賣
 通信網路            167.23    9.5%     6   23%(10/44)   -103.38  主動佈局 投信買外資賣
-其他電子            106.27    5.4%     9   20%(9/46)   -170.23  買超集中 投信買外資賣
+其他電子            104.66    5.4%     9   20%(9/46)   -170.23  買超集中 投信買外資賣
 電腦及週邊設備          91.89    3.7%     3   16%(11/67)   -133.88  買超集中 投信買外資賣
-塑膠工業             26.01    2.4%     2   40%(2/5)    -53.16  買超集中 投信買外資賣
+塑膠工業             23.39    2.2%     2   40%(2/5)    -53.16  買超集中 投信買外資賣
 食品工業             19.07   15.6%     4   25%(2/8)     -7.80  買超集中 投信買外資賣
 鋼鐵工業             17.32   10.2%    -1   18%(3/17)    -25.06  買超集中 投信買外資賣
 紡織纖維             12.07   10.4%    -1   27%(3/11)     -0.04  主動佈局 投信買外資賣
@@ -54,4 +53,4 @@ HVDC            149.02    8.5%     2   33%(3/9)   -201.54  主動佈局 投信�
 
 用瀏覽器打開報表，或 AirDrop 到手機看。
 
-RESULT {"ok": true, "warn": "", "new_day": true, "last_day": "20261126", "days_kept": 110, "changed": ["store/2026-06.csv", "store/2026-11.csv"], "removed": [], "picks": [{"title": "主動佈局＋投信買外資賣", "n": 7, "groups": "半導體、電子零組件、通信網路、HVDC、散熱、紡織纖維、金融保險"}, {"title": "只有主動佈局", "n": 0, "groups": "無"}, {"title": "只有投信買外資賣", "n": 7, "groups": "其他電子、電腦及週邊設備、塑膠工業、食品工業、鋼鐵工業、電機機械、油電燃氣"}]}
+RESULT {"ok": true, "warn": "", "new_day": false, "last_day": "20261126", "days_kept": 110, "changed": ["store/2026-11.csv"], "removed": [], "picks": [{"title": "主動佈局＋投信買外資賣", "n": 7, "groups": "半導體、電子零組件、通信網路、HVDC、散熱、紡織纖維、金融保險"}, {"title": "只有主動佈局", "n": 0, "groups": "無"}, {"title": "只有投信買外資賣", "n": 7, "groups": "其他電子、電腦及週邊設備、塑膠工業、食品工業、鋼鐵工業、電機機械、油電燃氣"}]}
